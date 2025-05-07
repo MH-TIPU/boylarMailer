@@ -10,21 +10,15 @@ interface AuthRequest extends Request {
     };
 }
 
-export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-        const authHeader = req.headers.authorization;
-
-        if (!authHeader) {
-            return res.status(401).json({ message: 'No authorization header' });
-        }
-
-        const token = authHeader.split(' ')[1];
+        const token = req.header('Authorization')?.replace('Bearer ', '');
 
         if (!token) {
-            return res.status(401).json({ message: 'No token provided' });
+            return res.status(401).json({ message: 'No authentication token, access denied' });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret') as {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as {
             id: string;
             email: string;
             role: string;
@@ -34,6 +28,6 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
         next();
     } catch (error) {
         logError(error as Error);
-        return res.status(401).json({ message: 'Invalid token' });
+        res.status(401).json({ message: 'Token is not valid' });
     }
 }; 

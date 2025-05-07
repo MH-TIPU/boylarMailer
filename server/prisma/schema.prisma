@@ -14,16 +14,17 @@ datasource db {
 }
 
 model User {
-  id        String     @id @default(uuid())
-  email     String     @unique
-  password  String
-  name      String
-  role      String     @default("user")
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  campaigns Campaign[]
-  templates Template[]
-  lists     SubscriberList[]
+  id            String         @id @default(uuid())
+  email         String         @unique
+  password      String
+  name          String
+  role          String         @default("USER")
+  resetToken    String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  templates     Template[]
+  campaigns     Campaign[]
+  subscriberLists SubscriberList[]
 }
 
 model Template {

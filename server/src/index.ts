@@ -12,6 +12,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { rateLimiter } from './middleware/rateLimiter';
 import { metricsMiddleware, getMetrics } from './services/monitoringService';
 import { stream, logHttpRequest, logError } from './services/loggingService';
+import routes from './routes';
 
 dotenv.config();
 

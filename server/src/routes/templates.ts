@@ -1,22 +1,17 @@
-import express from 'express';
+import { Router } from 'express';
+import { createTemplate, getTemplates, getTemplate, updateTemplate, deleteTemplate } from '../controllers/templateController';
 import { auth } from '../middleware/auth';
-import {
-  createTemplate,
-  getTemplates,
-  getTemplate,
-  updateTemplate,
-  deleteTemplate,
-} from '../controllers/templateController';
+import { validateTemplate } from '../middleware/validators';
 
-const router = express.Router();
+const router = Router();
 
 // All routes require authentication
 router.use(auth);
 
-router.post('/', createTemplate);
+router.post('/', validateTemplate, createTemplate);
 router.get('/', getTemplates);
 router.get('/:id', getTemplate);
-router.put('/:id', updateTemplate);
+router.put('/:id', validateTemplate, updateTemplate);
 router.delete('/:id', deleteTemplate);
 
 export default router; 

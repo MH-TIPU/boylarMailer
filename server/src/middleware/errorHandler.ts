@@ -2,76 +2,43 @@ import { Request, Response, NextFunction } from 'express';
 import { ValidationError } from 'joi';
 import { JsonWebTokenError } from 'jsonwebtoken';
 import { QueryFailedError } from 'typeorm';
+import { logError } from '../services/loggingService';
 
-interface AppError extends Error {
-    statusCode?: number;
-    code?: string;
+export class AppError extends Error {
+    statusCode: number;
+    status: string;
+    isOperational: boolean;
+
+    constructor(message: string, statusCode: number) {
+        super(message);
+        this.statusCode = statusCode;
+        this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
+        this.isOperational = true;
+
+        Error.captureStackTrace(this, this.constructor);
+    }
 }
 
 export const errorHandler = (
-    err: AppError,
+    err: Error | AppError,
     req: Request,
     res: Response,
     next: NextFunction
 ) => {
-    console.error('Error:', {
-        message: err.message,
-        stack: err.stack,
-        path: req.path,
-        method: req.method,
-        body: req.body,
-        query: req.query,
-        params: req.params,
-        user: req.user,
-    });
-
-    // Handle Joi validation errors
-    if (err instanceof ValidationError) {
-        return res.status(400).json({
-            status: 'error',
-            message: 'Validation error',
-            errors: err.details.map(detail => ({
-                field: detail.path.join('.'),
-                message: detail.message,
-            })),
-        });
-    }
-
-    // Handle JWT errors
-    if (err instanceof JsonWebTokenError) {
-        return res.status(401).json({
-            status: 'error',
-            message: 'Invalid token',
-        });
-    }
-
-    // Handle database errors
-    if (err instanceof QueryFailedError) {
-        // Handle unique constraint violations
-        if (err.message.includes('duplicate key')) {
-            return res.status(409).json({
-                status: 'error',
-                message: 'Resource already exists',
-            });
-        }
-
-        return res.status(500).json({
-            status: 'error',
-            message: 'Database error',
-        });
-    }
-
-    // Handle custom application errors
-    if (err.statusCode) {
+    if (err instanceof AppError) {
+        logError(err);
         return res.status(err.statusCode).json({
-            status: 'error',
-            message: err.message,
+            status: err.status,
+            message: err.message
         });
     }
 
-    // Handle all other errors
-    return res.status(500).json({
+    // Log unexpected errors
+    logError(err);
+
+    // Send generic error response
+    res.status(500).json({
         status: 'error',
-        message: 'Internal server error',
+        message: 'Something went wrong'
     });
 }; 

@@ -1,98 +1,146 @@
 import { Request, Response } from 'express';
-import { EmailTemplate } from '../models/EmailTemplate';
+import { prisma } from '../config/database';
+import { logError, logInfo } from '../services/loggingService';
+
+interface AuthRequest extends Request {
+    user?: {
+        id: string;
+        email: string;
+        role: string;
+    };
+}
 
 // Create a new template
-export const createTemplate = async (req: Request, res: Response) => {
-  try {
-    const { name, subject, content, isPublic } = req.body;
-    const userId = req.user?.userId; // This will be set by auth middleware
+export const createTemplate = async (req: AuthRequest, res: Response) => {
+    try {
+        const template = await prisma.template.create({
+            data: {
+                ...req.body,
+                userId: req.user?.id
+            }
+        });
 
-    const template = new EmailTemplate({
-      name,
-      subject,
-      content,
-      userId,
-      isPublic,
-    });
-
-    await template.save();
-    res.status(201).json(template);
-  } catch (error) {
-    res.status(500).json({ message: 'Error creating template', error });
-  }
+        logInfo(`Template created: ${template.id}`);
+        res.status(201).json(template);
+    } catch (error) {
+        logError(error as Error);
+        res.status(500).json({ message: 'Error creating template' });
+    }
 };
 
 // Get all templates for a user
-export const getTemplates = async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.userId;
-    const templates = await EmailTemplate.find({
-      $or: [
-        { userId },
-        { isPublic: true }
-      ]
-    }).sort({ createdAt: -1 });
-    res.json(templates);
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching templates', error });
-  }
+export const getTemplates = async (req: AuthRequest, res: Response) => {
+    try {
+        const templates = await prisma.template.findMany({
+            where: { userId: req.user?.id },
+            include: {
+                _count: {
+                    select: {
+                        campaigns: true
+                    }
+                }
+            }
+        });
+
+        res.json(templates);
+    } catch (error) {
+        logError(error as Error);
+        res.status(500).json({ message: 'Error fetching templates' });
+    }
 };
 
-// Get a single template
-export const getTemplate = async (req: Request, res: Response) => {
-  try {
-    const template = await EmailTemplate.findOne({
-      _id: req.params.id,
-      $or: [
-        { userId: req.user?.userId },
-        { isPublic: true }
-      ]
-    });
+// Get a specific template
+export const getTemplate = async (req: AuthRequest, res: Response) => {
+    try {
+        const template = await prisma.template.findUnique({
+            where: { id: req.params.id },
+            include: {
+                _count: {
+                    select: {
+                        campaigns: true
+                    }
+                }
+            }
+        });
 
-    if (!template) {
-      return res.status(404).json({ message: 'Template not found' });
+        if (!template) {
+            return res.status(404).json({ message: 'Template not found' });
+        }
+
+        if (template.userId !== req.user?.id) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        res.json(template);
+    } catch (error) {
+        logError(error as Error);
+        res.status(500).json({ message: 'Error fetching template' });
     }
-
-    res.json(template);
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching template', error });
-  }
 };
 
 // Update a template
-export const updateTemplate = async (req: Request, res: Response) => {
-  try {
-    const { name, subject, content, isPublic } = req.body;
-    const template = await EmailTemplate.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user?.userId },
-      { name, subject, content, isPublic },
-      { new: true }
-    );
+export const updateTemplate = async (req: AuthRequest, res: Response) => {
+    try {
+        const template = await prisma.template.findUnique({
+            where: { id: req.params.id }
+        });
 
-    if (!template) {
-      return res.status(404).json({ message: 'Template not found' });
+        if (!template) {
+            return res.status(404).json({ message: 'Template not found' });
+        }
+
+        if (template.userId !== req.user?.id) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        const updatedTemplate = await prisma.template.update({
+            where: { id: req.params.id },
+            data: req.body
+        });
+
+        logInfo(`Template updated: ${updatedTemplate.id}`);
+        res.json(updatedTemplate);
+    } catch (error) {
+        logError(error as Error);
+        res.status(500).json({ message: 'Error updating template' });
     }
-
-    res.json(template);
-  } catch (error) {
-    res.status(500).json({ message: 'Error updating template', error });
-  }
 };
 
 // Delete a template
-export const deleteTemplate = async (req: Request, res: Response) => {
-  try {
-    const template = await EmailTemplate.findOneAndDelete({
-      _id: req.params.id,
-      userId: req.user?.userId
-    });
+export const deleteTemplate = async (req: AuthRequest, res: Response) => {
+    try {
+        const template = await prisma.template.findUnique({
+            where: { id: req.params.id },
+            include: {
+                _count: {
+                    select: {
+                        campaigns: true
+                    }
+                }
+            }
+        });
 
-    if (!template) {
-      return res.status(404).json({ message: 'Template not found' });
+        if (!template) {
+            return res.status(404).json({ message: 'Template not found' });
+        }
+
+        if (template.userId !== req.user?.id) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        // Check if template is being used in any campaigns
+        if (template._count.campaigns > 0) {
+            return res.status(400).json({ message: 'Cannot delete template that is being used in campaigns' });
+        }
+
+        await prisma.template.delete({
+            where: { id: req.params.id }
+        });
+
+        logInfo(`Template deleted: ${req.params.id}`);
+        res.status(204).send();
+    } catch (error) {
+        logError(error as Error);
+        res.status(500).json({ message: 'Error deleting template' });
     }
-
-    res.json({ message: 'Template deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error deleting template', error });
-  }
 }; 

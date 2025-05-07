@@ -1,0 +1,114 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  password  String
+  name      String
+  role      String     @default("user")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  campaigns Campaign[]
+  templates Template[]
+  lists     SubscriberList[]
+}
+
+model Template {
+  id          String     @id @default(uuid())
+  name        String
+  content     String
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
+  campaigns   Campaign[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Campaign {
+  id              String          @id @default(uuid())
+  name            String
+  subject         String
+  status          String          @default("DRAFT") // DRAFT, RUNNING, PAUSED, COMPLETED
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  templateId      String
+  template        Template        @relation(fields: [templateId], references: [id])
+  subscriberListId String
+  subscriberList  SubscriberList  @relation(fields: [subscriberListId], references: [id])
+  emailsSent      EmailSent[]
+  emailsOpened    EmailOpened[]
+  emailsClicked   EmailClicked[]
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+model SubscriberList {
+  id          String      @id @default(uuid())
+  name        String
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  subscribers Subscriber[]
+  campaigns   Campaign[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Subscriber {
+  id              String          @id @default(uuid())
+  email           String
+  firstName       String?
+  lastName        String?
+  subscriberListId String
+  subscriberList  SubscriberList  @relation(fields: [subscriberListId], references: [id])
+  emailsSent      EmailSent[]
+  emailsOpened    EmailOpened[]
+  emailsClicked   EmailClicked[]
+  unsubscribed    Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([email, subscriberListId])
+}
+
+model EmailSent {
+  id           String     @id @default(uuid())
+  campaignId   String
+  campaign     Campaign   @relation(fields: [campaignId], references: [id])
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id])
+  sentAt       DateTime   @default(now())
+}
+
+model EmailOpened {
+  id           String     @id @default(uuid())
+  campaignId   String
+  campaign     Campaign   @relation(fields: [campaignId], references: [id])
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id])
+  openedAt     DateTime   @default(now())
+}
+
+model EmailClicked {
+  id           String     @id @default(uuid())
+  campaignId   String
+  campaign     Campaign   @relation(fields: [campaignId], references: [id])
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id])
+  link         String
+  clickedAt    DateTime   @default(now())
+}

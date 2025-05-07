@@ -15,27 +15,47 @@ class EmailCampaign extends Model
     protected $fillable = [
         'name',
         'subject',
+        'content',
         'template_id',
+        'subscriber_list_id',
+        'user_id',
         'status',
-        'sent_count',
-        'open_count',
-        'click_count',
-        'bounce_count',
-        'settings',
         'scheduled_at',
+        'sent_at',
+        'stats',
     ];
 
     protected $casts = [
-        'settings' => 'array',
         'scheduled_at' => 'datetime',
+        'sent_at' => 'datetime',
+        'stats' => 'array',
     ];
 
-    /**
-     * Get the template associated with the campaign
-     */
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function template()
     {
         return $this->belongsTo(EmailTemplate::class, 'template_id');
+    }
+
+    public function subscriberList()
+    {
+        return $this->belongsTo(SubscriberList::class);
+    }
+
+    public function getStatusBadgeAttribute()
+    {
+        return match($this->status) {
+            'draft' => 'warning',
+            'scheduled' => 'info',
+            'sending' => 'primary',
+            'sent' => 'success',
+            'failed' => 'error',
+            default => 'default',
+        };
     }
 
     /**

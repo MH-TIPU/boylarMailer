@@ -7,6 +7,7 @@ use App\Http\Controllers\CampaignController;
 use App\Models\Lead;
 use App\Models\EmailCampaign;
 use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
 
 Route::get('/', function () {
     return view('home');
@@ -49,6 +50,16 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/campaigns/{campaign}/cancel', [CampaignController::class, 'cancel'])->name('campaigns.cancel');
     Route::post('/campaigns/{campaign}/send', [CampaignController::class, 'send'])->name('campaigns.send');
     Route::get('/campaigns/{campaign}/edit-schedule', [CampaignController::class, 'editSchedule'])->name('campaigns.edit.schedule');
+
+    Route::get('/lists', function () {
+        return Inertia::render('SubscriberLists/Index');
+    })->name('lists.index');
+
+    Route::get('/lists/{id}', function ($id) {
+        return Inertia::render('SubscriberLists/Show', [
+            'listId' => $id,
+        ]);
+    })->name('lists.show');
 });
 
 // Routes accessible without authentication

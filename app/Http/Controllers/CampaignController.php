@@ -6,9 +6,12 @@ use App\Models\EmailCampaign;
 use App\Models\EmailTemplate;
 use App\Models\Lead;
 use App\Models\ScheduledEmail;
+use App\Models\SubscriberList;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
 
 class CampaignController extends Controller
 {
@@ -17,16 +20,14 @@ class CampaignController extends Controller
      */
     public function index()
     {
-        $campaigns = EmailCampaign::paginate(10);
+        $campaigns = EmailCampaign::where('user_id', Auth::id())
+            ->with(['template', 'subscriberList'])
+            ->latest()
+            ->get();
 
-        $stats = [
-            'total' => EmailCampaign::count(),
-            'sent' => EmailCampaign::where('status', 'sent')->count(),
-            'open_rate' => EmailCampaign::avg('open_rate'),
-            'click_rate' => EmailCampaign::avg('click_rate'),
-        ];
-
-        return view('campaigns.index', compact('campaigns', 'stats'));
+        return Inertia::render('Campaigns/Index', [
+            'campaigns' => $campaigns,
+        ]);
     }
 
     /**
@@ -34,8 +35,13 @@ class CampaignController extends Controller
      */
     public function create()
     {
-        $templates = EmailTemplate::all();
-        return view('campaigns.create', compact('templates'));
+        $templates = EmailTemplate::where('user_id', Auth::id())->get();
+        $lists = SubscriberList::where('user_id', Auth::id())->get();
+
+        return Inertia::render('Campaigns/Create', [
+            'templates' => $templates,
+            'lists' => $lists,
+        ]);
     }
 
     /**
@@ -43,50 +49,28 @@ class CampaignController extends Controller
      */
     public function store(Request $request)
     {
-        Log::info('Campaign store request received', ['save_type' => $request->input('save_type')]);
-
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'subject' => 'required|string|max:255',
-            'preview_text' => 'nullable|string|max:150',
             'content' => 'required|string',
-            'from_name' => 'required|string|max:255',
-            'from_email' => 'required|email|max:255',
-            'reply_to' => 'nullable|email|max:255',
-            'track_opens' => 'nullable|boolean',
-            'track_clicks' => 'nullable|boolean',
+            'template_id' => 'nullable|exists:email_templates,id',
+            'subscriber_list_id' => 'required|exists:subscriber_lists,id',
+            'scheduled_at' => 'nullable|date|after:now',
         ]);
 
-        Log::error('Validation failed', ['errors' => $validated]);
+        $campaign = EmailCampaign::create([
+            'user_id' => Auth::id(),
+            'name' => $validated['name'],
+            'subject' => $validated['subject'],
+            'content' => $validated['content'],
+            'template_id' => $validated['template_id'],
+            'subscriber_list_id' => $validated['subscriber_list_id'],
+            'scheduled_at' => $validated['scheduled_at'],
+            'status' => $validated['scheduled_at'] ? 'scheduled' : 'draft',
+        ]);
 
-        $saveType = $request->input('save_type', 'draft');
-        $status = $saveType === 'draft' ? 'draft' : 'pending';
-
-        Log::info('Attempting to create campaign', ['data' => $validated]);
-
-        Log::info('Store method called', ['request' => $request->all()]);
-
-        try {
-            $campaign = EmailCampaign::create([
-                'name' => $validated['name'],
-                'subject' => $validated['subject'],
-                'preview_text' => $validated['preview_text'] ?? null,
-                'content' => $validated['content'],
-                'from_name' => $validated['from_name'],
-                'from_email' => $validated['from_email'],
-                'reply_to' => $validated['reply_to'] ?? null,
-                'track_opens' => $validated['track_opens'] ?? false,
-                'track_clicks' => $validated['track_clicks'] ?? false,
-                'status' => $status,
-            ]);
-
-            Log::info('Campaign saved successfully', ['campaign_id' => $campaign->id]);
-        } catch (\Exception $e) {
-            Log::error('Error saving campaign', ['error' => $e->getMessage()]);
-            return redirect()->back()->with('error', 'Failed to save campaign. Please try again.');
-        }
-
-        return redirect()->route('campaigns.index')->with('success', 'Campaign created successfully.');
+        return redirect()->route('campaigns.show', $campaign)
+            ->with('success', 'Campaign created successfully.');
     }
 
     /**
@@ -94,15 +78,13 @@ class CampaignController extends Controller
      */
     public function show(EmailCampaign $campaign)
     {
-        $scheduledEmails = $campaign->scheduledEmails()->paginate(10);
-        $stats = [
-            'sent' => $campaign->sent_count,
-            'opened' => $campaign->open_count,
-            'clicked' => $campaign->click_count,
-            'bounced' => $campaign->bounce_count,
-        ];
-        
-        return view('campaigns.show', compact('campaign', 'scheduledEmails', 'stats'));
+        $this->authorize('view', $campaign);
+
+        $campaign->load(['template', 'subscriberList']);
+
+        return Inertia::render('Campaigns/Show', [
+            'campaign' => $campaign,
+        ]);
     }
 
     /**
@@ -110,8 +92,21 @@ class CampaignController extends Controller
      */
     public function edit(EmailCampaign $campaign)
     {
-        $templates = EmailTemplate::all();
-        return view('campaigns.edit', compact('campaign', 'templates'));
+        $this->authorize('update', $campaign);
+
+        if ($campaign->status !== 'draft') {
+            return redirect()->route('campaigns.show', $campaign)
+                ->with('error', 'Only draft campaigns can be edited.');
+        }
+
+        $templates = EmailTemplate::where('user_id', Auth::id())->get();
+        $lists = SubscriberList::where('user_id', Auth::id())->get();
+
+        return Inertia::render('Campaigns/Edit', [
+            'campaign' => $campaign,
+            'templates' => $templates,
+            'lists' => $lists,
+        ]);
     }
 
     /**
@@ -119,17 +114,32 @@ class CampaignController extends Controller
      */
     public function update(Request $request, EmailCampaign $campaign)
     {
+        $this->authorize('update', $campaign);
+
+        if ($campaign->status !== 'draft') {
+            return response()->json(['message' => 'Only draft campaigns can be updated.'], 422);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'subject' => 'required|string|max:255',
-            'template_id' => 'required|exists:email_templates,id',
-            'scheduled_at' => 'nullable|date',
-            'settings' => 'nullable|array',
+            'content' => 'required|string',
+            'template_id' => 'nullable|exists:email_templates,id',
+            'subscriber_list_id' => 'required|exists:subscriber_lists,id',
+            'scheduled_at' => 'nullable|date|after:now',
         ]);
 
-        $campaign->update($validated);
+        $campaign->update([
+            'name' => $validated['name'],
+            'subject' => $validated['subject'],
+            'content' => $validated['content'],
+            'template_id' => $validated['template_id'],
+            'subscriber_list_id' => $validated['subscriber_list_id'],
+            'scheduled_at' => $validated['scheduled_at'],
+            'status' => $validated['scheduled_at'] ? 'scheduled' : 'draft',
+        ]);
 
-        return redirect()->route('campaigns.index')
+        return redirect()->route('campaigns.show', $campaign)
             ->with('success', 'Campaign updated successfully.');
     }
 
@@ -138,7 +148,12 @@ class CampaignController extends Controller
      */
     public function destroy(EmailCampaign $campaign)
     {
-        $campaign->scheduledEmails()->delete();
+        $this->authorize('delete', $campaign);
+
+        if ($campaign->status !== 'draft') {
+            return response()->json(['message' => 'Only draft campaigns can be deleted.'], 422);
+        }
+
         $campaign->delete();
 
         return redirect()->route('campaigns.index')
@@ -268,21 +283,18 @@ class CampaignController extends Controller
      */
     public function cancel(EmailCampaign $campaign)
     {
-        if (in_array($campaign->status, ['scheduled', 'sending', 'paused'])) {
-            $campaign->status = 'canceled';
-            $campaign->save();
-            
-            // Cancel all pending scheduled emails
-            $campaign->scheduledEmails()
-                ->whereIn('status', ['scheduled'])
-                ->update(['status' => 'failed', 'error_message' => 'Campaign canceled']);
-                
-            return redirect()->route('campaigns.show', $campaign)
-                ->with('success', 'Campaign canceled successfully.');
+        $this->authorize('update', $campaign);
+
+        if (!in_array($campaign->status, ['scheduled', 'sending'])) {
+            return response()->json(['message' => 'Only scheduled or sending campaigns can be cancelled.'], 422);
         }
-        
-        return redirect()->route('campaigns.show', $campaign)
-            ->with('error', 'Campaign cannot be canceled in its current state.');
+
+        $campaign->update([
+            'status' => 'draft',
+            'scheduled_at' => null,
+        ]);
+
+        return response()->json(['message' => 'Campaign cancelled successfully.']);
     }
 
     /**
@@ -290,19 +302,19 @@ class CampaignController extends Controller
      */
     public function send(EmailCampaign $campaign)
     {
-        if ($campaign->status !== 'scheduled') {
-            return redirect()->route('campaigns.show', $campaign)
-                ->with('error', 'Only scheduled campaigns can be sent.');
+        $this->authorize('update', $campaign);
+
+        if ($campaign->status !== 'draft') {
+            return response()->json(['message' => 'Only draft campaigns can be sent.'], 422);
         }
 
-        try {
-            $campaign->sendEmails();
-            return redirect()->route('campaigns.show', $campaign)
-                ->with('success', 'Emails sent successfully.');
-        } catch (\Exception $e) {
-            return redirect()->route('campaigns.show', $campaign)
-                ->with('error', 'Failed to send emails: ' . $e->getMessage());
-        }
+        // TODO: Implement email sending logic
+        $campaign->update([
+            'status' => 'sending',
+            'sent_at' => now(),
+        ]);
+
+        return response()->json(['message' => 'Campaign is being sent.']);
     }
 
     /**
@@ -340,5 +352,25 @@ class CampaignController extends Controller
     public function editSchedule(EmailCampaign $campaign)
     {
         return view('campaigns.edit-schedule', compact('campaign'));
+    }
+
+    public function schedule(Request $request, EmailCampaign $campaign)
+    {
+        $this->authorize('update', $campaign);
+
+        if ($campaign->status !== 'draft') {
+            return response()->json(['message' => 'Only draft campaigns can be scheduled.'], 422);
+        }
+
+        $validated = $request->validate([
+            'scheduled_at' => 'required|date|after:now',
+        ]);
+
+        $campaign->update([
+            'scheduled_at' => $validated['scheduled_at'],
+            'status' => 'scheduled',
+        ]);
+
+        return response()->json(['message' => 'Campaign scheduled successfully.']);
     }
 }

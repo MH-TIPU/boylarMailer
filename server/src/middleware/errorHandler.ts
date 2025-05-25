@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ValidationError } from 'joi';
 import { JsonWebTokenError } from 'jsonwebtoken';
-import { QueryFailedError } from 'typeorm';
 import { logError } from '../services/loggingService';
 
 export class AppError extends Error {

@@ -6,30 +6,30 @@ import { stringify } from 'csv-stringify';
 import { Readable } from 'stream';
 import { RequestHandler } from 'express';
 import multer from 'multer';
-
-interface AuthRequest extends Request {
-    user?: {
-        id: string;
-        email: string;
-        role: string;
-    };
-}
+import { AuthRequest } from '../types/express';
 
 interface FileRequest extends AuthRequest {
-    file: Express.Multer.File;
+    file?: Express.Multer.File;
 }
 
 // Create a new subscriber list
 export const createSubscriberList = async (req: AuthRequest, res: Response) => {
     try {
+        const { name } = req.body;
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({ message: 'User not authenticated' });
+        }
+
         const subscriberList = await prisma.subscriberList.create({
             data: {
-                ...req.body,
-                userId: req.user?.id
+                name,
+                userId
             }
         });
 
-        logInfo(`Subscriber list created: ${subscriberList.id}`);
+        logInfo(`Created subscriber list ${subscriberList.id}`);
         res.status(201).json(subscriberList);
     } catch (error) {
         logError(error as Error);
@@ -37,16 +37,14 @@ export const createSubscriberList = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// Get all subscriber lists for a user
+// Get all subscriber lists for the authenticated user
 export const getSubscriberLists = async (req: AuthRequest, res: Response) => {
     try {
         const subscriberLists = await prisma.subscriberList.findMany({
             where: { userId: req.user?.id },
             include: {
                 _count: {
-                    select: {
-                        subscribers: true
-                    }
+                    select: { subscribers: true }
                 }
             }
         });
@@ -54,7 +52,7 @@ export const getSubscriberLists = async (req: AuthRequest, res: Response) => {
         res.json(subscriberLists);
     } catch (error) {
         logError(error as Error);
-        res.status(500).json({ message: 'Error fetching subscriber lists' });
+        res.status(500).json({ message: 'Error getting subscriber lists' });
     }
 };
 
@@ -66,9 +64,7 @@ export const getSubscriberList = async (req: AuthRequest, res: Response) => {
             include: {
                 subscribers: true,
                 _count: {
-                    select: {
-                        subscribers: true
-                    }
+                    select: { subscribers: true }
                 }
             }
         });
@@ -84,13 +80,15 @@ export const getSubscriberList = async (req: AuthRequest, res: Response) => {
         res.json(subscriberList);
     } catch (error) {
         logError(error as Error);
-        res.status(500).json({ message: 'Error fetching subscriber list' });
+        res.status(500).json({ message: 'Error getting subscriber list' });
     }
 };
 
 // Update a subscriber list
 export const updateSubscriberList = async (req: AuthRequest, res: Response) => {
     try {
+        const { name } = req.body;
+
         const subscriberList = await prisma.subscriberList.findUnique({
             where: { id: req.params.id }
         });
@@ -105,10 +103,10 @@ export const updateSubscriberList = async (req: AuthRequest, res: Response) => {
 
         const updatedSubscriberList = await prisma.subscriberList.update({
             where: { id: req.params.id },
-            data: req.body
+            data: { name }
         });
 
-        logInfo(`Subscriber list updated: ${updatedSubscriberList.id}`);
+        logInfo(`Updated subscriber list ${updatedSubscriberList.id}`);
         res.json(updatedSubscriberList);
     } catch (error) {
         logError(error as Error);
@@ -135,8 +133,8 @@ export const deleteSubscriberList = async (req: AuthRequest, res: Response) => {
             where: { id: req.params.id }
         });
 
-        logInfo(`Subscriber list deleted: ${req.params.id}`);
-        res.status(204).send();
+        logInfo(`Deleted subscriber list ${subscriberList.id}`);
+        res.json({ message: 'Subscriber list deleted successfully' });
     } catch (error) {
         logError(error as Error);
         res.status(500).json({ message: 'Error deleting subscriber list' });
@@ -159,81 +157,10 @@ const upload = multer({
 });
 
 // Import subscribers from CSV
-export const importSubscribers: RequestHandler = [
-    upload.single('file'),
-    async (req: FileRequest, res: Response) => {
-        if (!req.file) {
-            return res.status(400).json({ message: 'No file uploaded' });
-        }
-
-        try {
-            const subscriberList = await prisma.subscriberList.findUnique({
-                where: { id: req.params.id }
-            });
-
-            if (!subscriberList) {
-                return res.status(404).json({ message: 'Subscriber list not found' });
-            }
-
-            if (subscriberList.userId !== req.user?.id) {
-                return res.status(403).json({ message: 'Not authorized' });
-            }
-
-            const parser = parse({
-                columns: true,
-                skip_empty_lines: true
-            });
-
-            const subscribers: any[] = [];
-            let errorCount = 0;
-
-            parser.on('readable', async () => {
-                let record;
-                while ((record = parser.read())) {
-                    try {
-                        const subscriber = await prisma.subscriber.create({
-                            data: {
-                                email: record.email,
-                                firstName: record.firstName,
-                                lastName: record.lastName,
-                                subscriberListId: subscriberList.id
-                            }
-                        });
-                        subscribers.push(subscriber);
-                    } catch (error) {
-                        errorCount++;
-                        logError(error as Error);
-                    }
-                }
-            });
-
-            const readStream = new Readable();
-            readStream.push(req.file.buffer);
-            readStream.push(null);
-            readStream.pipe(parser);
-
-            await new Promise((resolve) => parser.on('end', resolve));
-
-            logInfo(`Imported ${subscribers.length} subscribers to list ${subscriberList.id}`);
-            res.json({
-                message: `Imported ${subscribers.length} subscribers successfully`,
-                errors: errorCount
-            });
-        } catch (error) {
-            logError(error as Error);
-            res.status(500).json({ message: 'Error importing subscribers' });
-        }
-    }
-];
-
-// Export subscribers to CSV
-export const exportSubscribers = async (req: AuthRequest, res: Response) => {
+export const importSubscribers = async (req: FileRequest, res: Response) => {
     try {
         const subscriberList = await prisma.subscriberList.findUnique({
-            where: { id: req.params.id },
-            include: {
-                subscribers: true
-            }
+            where: { id: req.params.id }
         });
 
         if (!subscriberList) {
@@ -244,29 +171,85 @@ export const exportSubscribers = async (req: AuthRequest, res: Response) => {
             return res.status(403).json({ message: 'Not authorized' });
         }
 
-        const stringifier = stringify({
-            header: true,
-            columns: ['email', 'firstName', 'lastName', 'unsubscribed', 'createdAt']
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file uploaded' });
+        }
+
+        const parser = parse({
+            columns: true,
+            skip_empty_lines: true
         });
+
+        const subscribers: any[] = [];
+        let errorCount = 0;
+
+        parser.on('readable', async () => {
+            let record;
+            while ((record = parser.read())) {
+                try {
+                    const subscriber = await prisma.subscriber.create({
+                        data: {
+                            email: record.email,
+                            firstName: record.firstName,
+                            lastName: record.lastName,
+                            subscriberListId: subscriberList.id
+                        }
+                    });
+                    subscribers.push(subscriber);
+                } catch (error) {
+                    errorCount++;
+                    logError(error as Error);
+                }
+            }
+        });
+
+        const readStream = new Readable();
+        readStream.push(req.file.buffer);
+        readStream.push(null);
+        readStream.pipe(parser);
+
+        await new Promise((resolve) => parser.on('end', resolve));
+
+        logInfo(`Imported ${subscribers.length} subscribers to list ${subscriberList.id}`);
+        res.json({
+            message: `Imported ${subscribers.length} subscribers successfully`,
+            errors: errorCount
+        });
+    } catch (error) {
+        logError(error as Error);
+        res.status(500).json({ message: 'Error importing subscribers' });
+    }
+};
+
+// Export subscribers to CSV
+export const exportSubscribers = async (req: AuthRequest, res: Response) => {
+    try {
+        const subscriberList = await prisma.subscriberList.findUnique({
+            where: { id: req.params.id },
+            include: { subscribers: true }
+        });
+
+        if (!subscriberList) {
+            return res.status(404).json({ message: 'Subscriber list not found' });
+        }
+
+        if (subscriberList.userId !== req.user?.id) {
+            return res.status(403).json({ message: 'Not authorized' });
+        }
+
+        const csvData = subscriberList.subscribers.map(subscriber => ({
+            email: subscriber.email,
+            firstName: subscriber.firstName,
+            lastName: subscriber.lastName
+        }));
 
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename=subscribers-${subscriberList.id}.csv`);
 
-        stringifier.pipe(res);
+        const csv = csvData.map(row => Object.values(row).join(',')).join('\n');
+        res.send(csv);
 
-        for (const subscriber of subscriberList.subscribers) {
-            stringifier.write({
-                email: subscriber.email,
-                firstName: subscriber.firstName || '',
-                lastName: subscriber.lastName || '',
-                unsubscribed: subscriber.unsubscribed,
-                createdAt: subscriber.createdAt
-            });
-        }
-
-        stringifier.end();
-
-        logInfo(`Exported subscribers from list ${subscriberList.id}`);
+        logInfo(`Exported ${csvData.length} subscribers from list ${subscriberList.id}`);
     } catch (error) {
         logError(error as Error);
         res.status(500).json({ message: 'Error exporting subscribers' });

@@ -10,7 +10,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { errorHandler } from './middleware/errorHandler';
 import { rateLimiter } from './middleware/rateLimiter';
-import { metricsMiddleware, getMetrics } from './services/monitoringService';
+import monitoringService from './services/monitoringService';
 import { stream, logHttpRequest, logError } from './services/loggingService';
 import routes from './routes';
 
@@ -34,7 +34,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('combined', { stream }));
-app.use(metricsMiddleware);
+app.use(monitoringService.middleware);
 app.use(rateLimiter);
 
 // Database connection
@@ -46,7 +46,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/boylarMai
 app.use('/api/auth', authRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api', routes);
-app.get('/metrics', getMetrics);
+app.get('/metrics', monitoringService.metricsHandler);
 
 // Basic route
 app.get('/', (req, res) => {

@@ -11,6 +11,7 @@ import {
     Card,
     CardContent,
     Divider,
+    Chip
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -42,6 +43,11 @@ interface Campaign {
         name: string;
     };
     stats?: CampaignStats;
+    _count: {
+        emailsSent: number;
+        emailsOpened: number;
+        emailsClicked: number;
+    };
 }
 
 const CampaignShow: React.FC = () => {
@@ -67,28 +73,39 @@ const CampaignShow: React.FC = () => {
         fetchCampaign();
     }, [id]);
 
-    const handleSend = async () => {
+    const handleStart = async () => {
         try {
-            await axios.post(`/api/campaigns/${id}/send`);
-            window.location.reload();
-        } catch (err) {
-            setError('Failed to send campaign');
-            console.error('Error sending campaign:', err);
+            await axios.post(`/api/campaigns/${id}/start`);
+            navigate('/campaigns');
+        } catch (error) {
+            console.error('Error starting campaign:', error);
         }
     };
 
-    const handleSchedule = async () => {
-        const scheduledAt = prompt('Enter schedule date and time (YYYY-MM-DD HH:mm):');
-        if (!scheduledAt) return;
-
+    const handlePause = async () => {
         try {
-            await axios.post(`/api/campaigns/${id}/schedule`, {
-                scheduled_at: scheduledAt,
-            });
-            window.location.reload();
-        } catch (err) {
-            setError('Failed to schedule campaign');
-            console.error('Error scheduling campaign:', err);
+            await axios.post(`/api/campaigns/${id}/pause`);
+            navigate('/campaigns');
+        } catch (error) {
+            console.error('Error pausing campaign:', error);
+        }
+    };
+
+    const handleResume = async () => {
+        try {
+            await axios.post(`/api/campaigns/${id}/resume`);
+            navigate('/campaigns');
+        } catch (error) {
+            console.error('Error resuming campaign:', error);
+        }
+    };
+
+    const handleStop = async () => {
+        try {
+            await axios.post(`/api/campaigns/${id}/stop`);
+            navigate('/campaigns');
+        } catch (error) {
+            console.error('Error stopping campaign:', error);
         }
     };
 
@@ -129,22 +146,42 @@ const CampaignShow: React.FC = () => {
                     >
                         Back to Campaigns
                     </Button>
-                    {campaign.status === 'draft' && (
+                    {campaign.status === 'DRAFT' && (
                         <Box>
                             <Button
                                 variant="contained"
-                                startIcon={<SendIcon />}
-                                onClick={handleSend}
+                                color="primary"
+                                onClick={handleStart}
                                 sx={{ mr: 1 }}
                             >
-                                Send Now
+                                Start Campaign
+                            </Button>
+                        </Box>
+                    )}
+                    {['RUNNING', 'PAUSED'].includes(campaign.status) && (
+                        <Box>
+                            <Button
+                                variant="contained"
+                                color="warning"
+                                onClick={handlePause}
+                                sx={{ mr: 1 }}
+                            >
+                                Pause Campaign
                             </Button>
                             <Button
-                                variant="outlined"
-                                startIcon={<ScheduleIcon />}
-                                onClick={handleSchedule}
+                                variant="contained"
+                                color="success"
+                                onClick={handleResume}
+                                sx={{ mr: 1 }}
                             >
-                                Schedule
+                                Resume Campaign
+                            </Button>
+                            <Button
+                                variant="contained"
+                                color="error"
+                                onClick={handleStop}
+                            >
+                                Stop Campaign
                             </Button>
                         </Box>
                     )}
@@ -154,6 +191,17 @@ const CampaignShow: React.FC = () => {
                     <Typography variant="h4" gutterBottom>
                         {campaign.name}
                     </Typography>
+                    <Chip
+                        label={campaign.status}
+                        color={
+                            campaign.status === 'RUNNING'
+                                ? 'success'
+                                : campaign.status === 'PAUSED'
+                                ? 'warning'
+                                : 'default'
+                        }
+                        sx={{ mb: 2 }}
+                    />
                     <Typography variant="subtitle1" color="textSecondary" gutterBottom>
                         Subject: {campaign.subject}
                     </Typography>
@@ -162,9 +210,6 @@ const CampaignShow: React.FC = () => {
                     </Typography>
                     <Typography variant="body2" color="textSecondary">
                         Subscriber List: {campaign.subscriber_list.name}
-                    </Typography>
-                    <Typography variant="body2" color="textSecondary">
-                        Status: {campaign.status}
                     </Typography>
                     {campaign.scheduled_at && (
                         <Typography variant="body2" color="textSecondary">
@@ -257,6 +302,32 @@ const CampaignShow: React.FC = () => {
                     >
                         {campaign.content}
                     </Box>
+                </Paper>
+
+                <Paper sx={{ p: 3 }}>
+                    <Typography variant="h6" gutterBottom>
+                        Statistics
+                    </Typography>
+                    <Grid container spacing={2}>
+                        <Grid item xs={4}>
+                            <Paper sx={{ p: 2, textAlign: 'center' }}>
+                                <Typography variant="h6">{campaign._count.emailsSent}</Typography>
+                                <Typography variant="body2">Emails Sent</Typography>
+                            </Paper>
+                        </Grid>
+                        <Grid item xs={4}>
+                            <Paper sx={{ p: 2, textAlign: 'center' }}>
+                                <Typography variant="h6">{campaign._count.emailsOpened}</Typography>
+                                <Typography variant="body2">Opens</Typography>
+                            </Paper>
+                        </Grid>
+                        <Grid item xs={4}>
+                            <Paper sx={{ p: 2, textAlign: 'center' }}>
+                                <Typography variant="h6">{campaign._count.emailsClicked}</Typography>
+                                <Typography variant="body2">Clicks</Typography>
+                            </Paper>
+                        </Grid>
+                    </Grid>
                 </Paper>
             </Box>
         </Container>

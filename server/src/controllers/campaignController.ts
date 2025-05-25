@@ -298,8 +298,8 @@ export const stopCampaign = async (req: AuthRequest, res: Response) => {
         });
 
         // Remove remaining jobs from the queue for this campaign
-        await emailQueue.clean(0, 'delayed', `campaignId:${campaign.id}`);
-        await emailQueue.clean(0, 'wait', `campaignId:${campaign.id}`);
+        await emailQueue.clean(0, 'delayed');
+        await emailQueue.clean(0, 'wait');
 
         logInfo(`Campaign stopped: ${campaign.id}`);
         res.json(updatedCampaign);
